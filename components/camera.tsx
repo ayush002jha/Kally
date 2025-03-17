@@ -104,7 +104,7 @@ export function Camera() {
 
         const uploadResult = await uploadResponse.json();
         // Assuming the output structure matches and returns a JSON string
-        setFoodData(uploadResult.outputs[0].outputs[0].results.message.data.text);
+        setFoodData(uploadResult);
       } catch (uploadError) {
         console.error("Error uploading to Google AI:", uploadError);
       }
@@ -153,10 +153,9 @@ export function Camera() {
     <div className="absolute top-0 left-0 w-full z-10 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="flex items-center justify-between gap-10">
         <h1 className="text-4xl font-bold text-white">Kally</h1>
-        <div className="w-48 flex items-center justify-center">
-          {/* Placeholder for logo - replace with actual logo */}
+        {/* <div className="w-48 flex items-center justify-center">
           <Image src="/langflow.png" alt="langflow" height={600} width={600} className="" />
-        </div>
+        </div> */}
       </div>
     </div>
   );

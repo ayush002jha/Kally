@@ -1,25 +1,22 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleAIFileManager } from "@google/generative-ai/server";
-import fs from "fs/promises";
-import os from "os";
-import path from "path";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GOOGLE_AI_API_KEY;
-    // const authToken = process.env.AUTH_TOKEN;
-    // const xApiKey = process.env.X_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "API keys are not configured" },
+        { error: "Google AI API key is not configured" },
         { status: 500 }
       );
     }
 
-    const fileManager = new GoogleAIFileManager(apiKey);
+    // Initialize the Google Generative AI client
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
     const formData = await req.formData();
     const imageFile = formData.get("image") as File;
 
@@ -27,73 +24,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
     }
 
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "upload-"));
-    const tempFilePath = path.join(tempDir, `image-${Date.now()}.jpg`);
-    const bytes = await imageFile.arrayBuffer();
-    await fs.writeFile(tempFilePath, new Uint8Array(bytes));
+    // Convert the image to base64
+    const imageArrayBuffer = await imageFile.arrayBuffer();
+    const base64Image = Buffer.from(imageArrayBuffer).toString('base64');
 
-    const uploadResult = await fileManager.uploadFile(tempFilePath, {
-      mimeType: imageFile.type || "image/jpeg",
-      displayName: `food-image-${Date.now()}`,
-    });
-
-    await fs
-      .unlink(tempFilePath)
-      .catch((err) => console.error("Failed to delete temp file:", err));
-    await fs
-      .rmdir(tempDir)
-      .catch((err) => console.error("Failed to delete temp dir:", err));
-
-    console.log(
-      `Uploaded file ${uploadResult.file.displayName} as: ${uploadResult.file.uri}`
-    );
-
+    // Create the prompt for food identification and nutrition analysis
     const prompt = `
     Given the provided image, identify the dish/food name and extract the following nutritional properties: calories, protein, carbohydrates, and fat. Return your response as a raw JSON object WITHOUT any markdown formatting, code block indicators, explanations, or additional text. The JSON should use the following keys exactly: 'name', 'calories', 'protein', 'carbs', and 'fat'. Example of the expected format:
     {
-    "name": "Dish Name",
-    "calories": 000,
-    "protein": 00,
-    "carbs": 00,
-    "fat": 00
-    }
-`;
+      "name": "Dish Name",
+      "calories": 000,
+      "protein": 00,
+      "carbs": 00,
+      "fat": 00
+    }`;
 
-    // Call the external API with the uploaded file URI
-    const response = await fetch(
-      "http://127.0.0.1:7860/api/v1/run/88f676c8-7484-438a-807a-e9aa15ca0b2c?stream=false",
+    // Get the Gemini 2 Flash model
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      // systemInstruction helps ensure we get JSON output
+      systemInstruction: "Always respond with structured JSON data as requested by the user."
+    });
+
+    // Create content parts with the inline base64 image and prompt
+    const result = await model.generateContent([
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+        inlineData: {
+          data: base64Image,
+          mimeType: imageFile.type || "image/jpeg",
         },
-        body: JSON.stringify({
-          input_value: prompt,
-          output_type: "chat",
-          input_type: "chat",
-          tweaks: {
-            "ChatOutput-gvJDG": {},
-            "ChatInput-5S2Am": {},
-            "CustomComponent-KVGjb": {},
-            "ParseData-1oHix": {},
-            "TextInput-MOtin": { input_value: uploadResult.file.uri },
-          },
-        }),
-      }
-    );
+      },
+      prompt
+    ]);
 
-    if (!response.ok) {
-      throw new Error(
-        `External API request failed with status ${response.status}`
-      );
-    }
+    const response = result.response;
+    const textContent = response.text();
+  
+    // console.log("Response from Gemini:", response);
 
-  
-    const responseData = await response.json();
-    console.log("Response from external API:", responseData.outputs[0].outputs[0].results.message.data.text
-    );
-    return NextResponse.json(responseData);
-  
+    // console.log("Response from Gemini:", textContent);
+    return NextResponse.json(textContent);
   } catch (error) {
     console.error("Error processing request:", error);
     return NextResponse.json(
